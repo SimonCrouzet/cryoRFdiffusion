@@ -454,6 +454,64 @@ class substrate_contacts(Potential):
             self.motif_frame = xyz[rand_idx[0],:4]
             self.motif_mapping = [(rand_idx, i) for i in range(4)]
 
+
+class cryoem_densities(Potential):
+    '''
+    .......
+    '''
+    def __init__(self, binderlen, center_CA, cryoem_map, weight=10, min_dist=15, scale=1, simulated_map_resolution=8.0):
+        self.binderlen = binderlen
+        self.min_dist  = min_dist
+        self.center_CA = center_CA
+        # Load the electron density map
+        if cryoem_map is None:
+            # blurrer = StructureBlurrer(with_vc=True)  # use fast real-space blurring
+            # sim_map = blurrer.gaussian_blur_real_space(
+            #         model,
+            #         map_resolution,
+            #         exp_map)
+            return ValueError("If using cryoEM densities as a potential, you must provide a cryoEM map")
+        else:
+            self.density_map = gemmi.read_ccp4_map(cryoem_map)
+            self.density_map.setup(float('nan'))
+        self.scale = scale
+        self.weight = weight
+
+    def get_densities(self, coords, exclude_coords=[]):
+        # Convert to numpy for gemmi operations
+        # coords_np = coords.detach().cpu().numpy()
+
+        def coord_to_density(coord):
+            # x, y, z = coords
+            # Convert position to fractional coordinates
+            
+            frac = self.density_map.grid.unit_cell.fractionalize(gemmi.Position(*revert_init_xyz(coord, center_CA=self.center_CA)))
+            # Get interpolated density and derivatives
+            density = self.density_map.grid.interpolate_value(frac)
+            return density
+        
+        # Vectorized density interpolation
+        densities = torch.tensor([
+            coord_to_density(coord) if idx not in exclude_coords else .0 for idx, coord in enumerate(coords[:,1,:])
+        ], dtype=coords.dtype, device=coords.device, requires_grad=True)
+        
+        return densities
+    
+    def compute(self, xyz, xyz_orig):
+
+        # Apply get_densities to all coordinates at once
+        densities = self.get_densities(xyz, exclude_coords=[list(range(self.binderlen, xyz.shape[0]))]) # exclude target residues
+
+        # Use torch.autograd.grad to compute gradients
+        grad_outputs = torch.ones_like(densities)
+        gradients = torch.autograd.grad(densities, xyz, grad_outputs=grad_outputs, create_graph=True, allow_unused=True)
+
+        # Compute the weighted sum of densities
+        result = self.weight * densities.sum()
+        print(f"Value returned by cryoem_densities: {result}")
+        return result # should be maximized
+
+
 # Dictionary of types of potentials indexed by name of potential. Used by PotentialManager.
 # If you implement a new potential you must add it to this dictionary for it to be used by
 # the PotentialManager
@@ -464,12 +522,15 @@ implemented_potentials = { 'monomer_ROG':          monomer_ROG,
                            'interface_ncontacts':  interface_ncontacts,
                            'monomer_contacts':     monomer_contacts,
                            'olig_contacts':        olig_contacts,
-                           'substrate_contacts':    substrate_contacts}
+                           'substrate_contacts':    substrate_contacts,
+                           'densities':             cryoem_densities}
 
 require_binderlen      = { 'binder_ROG',
                            'binder_distance_ReLU',
                            'binder_any_ReLU',
                            'dimer_ROG',
                            'binder_ncontacts',
-                           'interface_ncontacts'}
+                           'interface_ncontacts',
+                           'densities' # for now, this is only used for binder
+                           }
 
