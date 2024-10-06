@@ -186,3 +186,90 @@ def generate_command(args, chain_infos: List[str]) -> str:
         command += f'inference.revert_init_coords=True '
 
     return command
+
+
+def main():
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Generate and run RFDiffusion command for antibody design')
+    parser.add_argument('--input_pdb', required=True, help='Path to input PDB file')
+    parser.add_argument('--output_prefix', required=True, help='Output prefix for generated files')
+    parser.add_argument('--design_dict', required=True, type=str, help='Path to JSON file with design ranges')
+    parser.add_argument('--cdr_length_json', type=str, help='Path to JSON file with CDR length data')
+    parser.add_argument('--cdr_data_type', type=str, choices=['all', 'train'], default='train', help='Type of CDR data to use: all or train')
+    parser.add_argument('--num_designs', type=int, default=10, help='Number of designs to generate')
+    parser.add_argument('--noise_scale_ca', type=float, default=1, help='Noise scale for CA atom translations')
+    parser.add_argument('--noise_scale_frame', type=float, default=1, help='Noise scale for CA frame rotations')
+    parser.add_argument('--design_chain', type=str, nargs='*', help='Chain(s) to design (e.g., H L). If not specified, all chains will be considered for design.')
+    parser.add_argument('--fixed_chains', type=str, nargs='*', help='Chain(s) to fix (e.g., A B). If not specified, no chains will be fixed unless --design_chain is used.')
+    parser.add_argument('--cryoem_map', type=str, help='Path to cryoEM map file (optional)')
+    parser.add_argument('--cryoem_weight', type=float, default=10.0, help='Weight for cryoEM map potential')
+    parser.add_argument('--cryoem_aggr', type=str, choices=['sum', 'max'], default='sum', help='Aggregation method for cryoEM map potential')
+    parser.add_argument('--use_cdr_range', action='store_true', help='Use CDR length range from data. If not set, use current length +/- 1.')
+    parser.add_argument('--revert_init_coords', action='store_true', help='Revert design to initial coordinates')
+    parser.add_argument('--nb_diffusion_steps', type=int, default=50, help='Number of inference steps')
+
+    args = parser.parse_args()
+
+    # Configure logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # Validate input files
+    if not os.path.exists(args.input_pdb):
+        raise FileNotFoundError(f"Input PDB file {args.input_pdb} not found.")
+    if not os.path.exists(args.design_dict):
+        raise FileNotFoundError(f"Design dictionary file {args.design_dict} not found.")
+    if args.cdr_length_json and not os.path.exists(args.cdr_length_json):
+        raise FileNotFoundError(f"CDR length JSON file {args.cdr_length_json} not found.")
+    if args.cryoem_map and not os.path.exists(args.cryoem_map):
+        raise FileNotFoundError(f"CryoEM map file {args.cryoem_map} not found.")
+
+    # Parse PDB file
+    logging.info(f"Parsing input PDB file: {args.input_pdb}")
+    chain_residues = parse_pdb(args.input_pdb)
+
+    # Load design dictionary
+    design_dict = Path(args.design_dict)
+
+    # Load CDR length data if provided
+    cdr_length_data = None
+    if args.cdr_length_json:
+        logging.info(f"Loading CDR length data from {args.cdr_length_json}")
+        cdr_length_data = load_cdr_length_data(args.cdr_length_json, args.cdr_data_type)
+
+    # Update output prefix if specific chains are being designed
+    if args.design_chain:
+        args.output_prefix += f"_{''.join(args.design_chain)}"
+        logging.info(f"Updated output prefix: {args.output_prefix}")
+
+    # Generate chain info
+    logging.info("Generating chain info")
+    chain_infos, chain_infos_dict = generate_chain_info(
+        chain_residues, 
+        design_dict, 
+        cdr_length_data, 
+        design_chain=args.design_chain, 
+        fixed_chains=args.fixed_chains, 
+        use_cdr_range=args.use_cdr_range
+    )
+
+    # Log chain info details
+    logging.info(f"Generated chain infos: {chain_infos}")
+    logging.info(f"Fixed segments: {chain_infos_dict['fixed']}")
+    logging.info(f"Designed segments: {chain_infos_dict['designed']}")
+
+    # Generate and run RFDiffusion command
+    command = generate_command(args, chain_infos)
+    logging.info(f"Generated RFDiffusion command: {command}")
+    
+    logging.info("Running RFDiffusion command...")
+    try:
+        subprocess.run(command, check=True, shell=True)
+        logging.info("RFDiffusion command completed successfully")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"RFDiffusion command failed with error: {e}")
+        sys.exit(1)
+
+    logging.info(f"Antibody design process completed. Output files are prefixed with: {args.output_prefix}")
+
+if __name__ == '__main__':
+    main()
