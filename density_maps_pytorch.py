@@ -92,6 +92,64 @@ class DensityMapPyTorch:
             std=torch.std(self.grid_data)
         )
 
+    def _compute_frac_matrix(self):
+        """Compute the fractionalization matrix using unit cell parameters."""
+        # Define pi as a constant
+        self.pi = torch.tensor(np.pi, dtype=torch.float32)
+        
+        # Extract unit cell parameters
+        a, b, c = self.unit_cell.a, self.unit_cell.b, self.unit_cell.c
+        cos_alpha = torch.cos(self.unit_cell.alpha * self.pi / 180)
+        cos_beta = torch.cos(self.unit_cell.beta * self.pi / 180)
+        cos_gamma = torch.cos(self.unit_cell.gamma * self.pi / 180)
+        sin_gamma = torch.sin(self.unit_cell.gamma * self.pi / 180)
+        
+        # Compute unit cell volume
+        volume = a * b * c * torch.sqrt(1 - cos_alpha**2 - cos_beta**2 - cos_gamma**2 + 2 * cos_alpha * cos_beta * cos_gamma)
+        
+        # Compute fractionalization matrix
+        self.frac_matrix = torch.tensor([
+            [1 / a, -cos_gamma / (a * sin_gamma), b * c * (cos_alpha * cos_gamma - cos_beta) / (volume * sin_gamma)],
+            [0, 1 / (b * sin_gamma), a * c * (cos_beta * cos_gamma - cos_alpha) / (volume * sin_gamma)],
+            [0, 0, a * b * sin_gamma / volume]
+        ], dtype=torch.float32)
+
+    def fractionalize(self, xyz):
+        """
+        Convert Cartesian coordinates to fractional coordinates.
+        
+        Args:
+            xyz (torch.Tensor): Cartesian coordinates. Shape can be (3,) or (N, 3).
+        
+        Returns:
+            torch.Tensor: Fractional coordinates with the same shape as input.
+        """
+        # Ensure xyz is a tensor with gradients
+        # if not isinstance(xyz, torch.Tensor):
+        #     xyz = torch.tensor(xyz, dtype=torch.float32)
+        # if not xyz.requires_grad:
+        #     xyz.requires_grad_(True)
+        
+        # Handle different input dimensions
+        original_shape = xyz.shape
+        if len(original_shape) == 1:  # (3,)
+            xyz = xyz.view(1, 3)
+        elif len(original_shape) == 2:  # (N, 3)
+            xyz = xyz.view(-1, 3)
+        else:
+            raise ValueError(f"Unsupported input shape: {original_shape}. Expected (3,), or (N,3).")
+        
+        # Convert cartesian coordinates to fractional coordinates
+        frac = torch.einsum('ni,ij->nj', xyz, self.frac_matrix)
+        
+        # Reshape back to original dimensions if necessary
+        if len(original_shape) == 3:
+            frac = frac.view(original_shape)
+        elif len(original_shape) == 1:
+            frac = frac.squeeze(0).squeeze(0)
+        
+        return frac
+    
     
 class DensityMapBase(DensityMapPyTorch):
     def __init__(self):
