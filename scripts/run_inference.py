@@ -22,6 +22,7 @@ from omegaconf import OmegaConf
 import hydra
 import logging
 from rfdiffusion.util import writepdb_multi, writepdb
+from rfdiffusion.kinematics import revert_init_xyz
 from rfdiffusion.inference import utils as iu
 from hydra.core.hydra_config import HydraConfig
 import numpy as np
@@ -101,19 +102,20 @@ def main(conf: HydraConfig) -> None:
 
         # Flip order for better visualization in pymol
         denoised_xyz_stack = torch.stack(denoised_xyz_stack)
-        denoised_xyz_stack = torch.flip(
-            denoised_xyz_stack,
-            [
-                0,
-            ],
-        )
+        # TODO: We just desabled the flip - check if ok
+        # denoised_xyz_stack = torch.flip(
+        #     denoised_xyz_stack,
+        #     [
+        #         0,
+        #     ],
+        # )
         px0_xyz_stack = torch.stack(px0_xyz_stack)
-        px0_xyz_stack = torch.flip(
-            px0_xyz_stack,
-            [
-                0,
-            ],
-        )
+        # px0_xyz_stack = torch.flip(
+        #     px0_xyz_stack,
+        #     [
+        #         0,
+        #     ],
+        # )
 
         # For logging -- don't flip
         plddt_stack = torch.stack(plddt_stack)
@@ -136,7 +138,7 @@ def main(conf: HydraConfig) -> None:
         # Now don't output sidechains
         writepdb(
             out,
-            denoised_xyz_stack[0, :, :4],
+            denoised_xyz_stack[-1, :, :4],  # TODO: Check that
             final_seq,
             sampler.binderlen,
             chain_idx=sampler.chain_idx,
