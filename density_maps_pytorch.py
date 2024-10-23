@@ -156,6 +156,29 @@ class DensityMapPyTorch:
         
         return frac
     
+    def _compute_grid(self, voxel_set, axis_order):
+        """
+        Prepare the voxel grid for interpolation.
+        
+        Args:
+            voxel_set (torch.Tensor): The voxel grid data.
+        """
+        # Ensure grid is a tensor with gradients
+        # if not isinstance(voxel_set, torch.Tensor):
+        #     voxel_set = torch.tensor(voxel_set, dtype=torch.float32)
+        # if not voxel_set.requires_grad:
+        #     voxel_set.requires_grad_(True)
+
+        # # Reshape grid to (1, 1, nx, ny, nz) for interpolation
+        self.grid = voxel_set.unsqueeze(0).unsqueeze(0)
+        self.grid.requires_grad = False # TODO: Test if it works better like that
+
+        # Permute the grid to match Depth * Height * Width order (cf documentation)
+        if axis_order == 'XYZ': # XYZ -> DHW, assuming X is width, Y is height, Z is depth
+            self.grid = self.grid.permute(0, 1, 4, 3, 2)
+        elif axis_order == 'ZYX': # ZYX -> DHW, assuming X is width, Y is height, Z is depth
+            pass
+
     
 class DensityMapBase(DensityMapPyTorch):
     def __init__(self):
