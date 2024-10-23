@@ -456,21 +456,62 @@ class substrate_contacts(Potential):
 
 
 class cryoem_densities(Potential):
-    '''
-    .......
-    '''
-    def __init__(self, binderlen, center_CA, cryoem_map, weight=10, min_dist=15, scale=1, simulated_map_resolution=8.0):
+    """
+    A class for guiding designs using cryo-electron microscopy (cryoEM) density maps.
+    This class provides methods to load, process, and compute densities from cryoEM maps.
+    """
+    def __init__(self, binderlen: int, center_CA: torch.Tensor, mask: torch.Tensor, cryoem_map: str, cryoem_config: str = None, cryoem_contour: float = 0.0):
+        """
+        Initialize the CryoEMDensities object.
+        Args:
+            binderlen (int): Length of the binder.
+            center_CA (torch.Tensor): Center of the alpha carbons.
+            cryoem_map (str): Path to the cryoEM map file.
+            config_file (str, optional): Path to the JSON configuration file.
+        """
         self.binderlen = binderlen
-        self.min_dist  = min_dist
+        self.mask = mask.squeeze()
         self.center_CA = center_CA
-        # Load the electron density map
-        if cryoem_map is None:
-            # blurrer = StructureBlurrer(with_vc=True)  # use fast real-space blurring
-            # sim_map = blurrer.gaussian_blur_real_space(
-            #         model,
-            #         map_resolution,
-            #         exp_map)
-            return ValueError("If using cryoEM densities as a potential, you must provide a cryoEM map")
+        self.density_map = self._init_density_map(cryoem_map)
+        
+        # Load configuration from JSON file or use defaults
+        self.config = self.load_config(cryoem_config)
+        self.contour = cryoem_contour
+        self.max_potential = None
+        self._log = logging.getLogger(__name__)
+        mask_sum = 'NA' if self.mask is None else str(self.mask.sum())
+        self._log.info(f"CryoEM density guiding potential: mask.shape={mask_sum}, weight={self.config['cryoem_weight']}, aggr={self.config['cryoem_aggr']}, rescale={self.config['rescale_method']}, countour={self.contour}")
+
+    @staticmethod
+    def default_config() -> Dict[str, Any]:
+        """
+        Provides default configuration values.
+        """
+        return {
+            'cryoem_weight': 10.0,
+            'cryoem_aggr': 'sum',
+            'rescale_method': 'minmax',
+        }
+
+    @staticmethod
+    def load_config(config_file: str) -> Dict[str, Any]:
+        """
+        Load configuration from a JSON file.
+        Args:
+            config_file (str): Path to the JSON configuration file.
+        Returns:
+            Dict[str, Any]: Loaded configuration.
+        """
+        try:
+            with open(config_file, 'r') as f:
+                config = yaml.safe_load(f)
+            # Merge with default config to ensure all necessary keys are present
+            default_config = cryoem_densities.default_config()
+            default_config.update(config)
+        except:
+            default_config = cryoem_densities.default_config()
+        return default_config
+    
         else:
             self.density_map = gemmi.read_ccp4_map(cryoem_map)
             self.density_map.setup(float('nan'))
