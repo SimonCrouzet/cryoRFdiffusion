@@ -21,9 +21,15 @@ class DensityMapPyTorch:
     and perform operations such as coordinate fractionalization and density interpolation.
     """
 
-    def __init__(self):
+    def __init__(self, mode='trilinear'):
         """Initialize the DensityMapPyTorch object."""
-        pass
+        if mode == 'trilinear':
+            # 'bilinear' mode is trilinear when using 5D input
+            self.mode = 'bilinear'
+        elif mode == 'nearest':
+            self.mode = 'nearest'
+        else:
+            raise ValueError(f"Unsupported interpolation mode: {mode}. Supported modes are 'nearest' and 'bilinear'.")
 
     def _get_gemmi_ccp4_map(self, path, setup=True):
         # Read the CCP4 map using gemmi
