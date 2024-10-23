@@ -179,6 +179,47 @@ class DensityMapPyTorch:
         elif axis_order == 'ZYX': # ZYX -> DHW, assuming X is width, Y is height, Z is depth
             pass
 
+    def get_interpolated_density(self, xyz):
+        """
+        Get interpolated density values at given Cartesian coordinates.
+        
+        Args:
+            xyz (torch.Tensor): Cartesian coordinates. Shape can be (3,) or (N, 3).
+        
+        Returns:
+            torch.Tensor: Interpolated density values.
+        """
+        # Ensure xyz is a tensor with gradients
+        if not xyz.requires_grad:
+            xyz.requires_grad_(True)
+            logging.warning(f"xyz.requires_grad is False. Setting to True.")
+        
+        # Convert Cartesian coordinates to fractional coordinates
+        frac = self.fractionalize(xyz)
+        
+        # Create normalized coordinates for interpolation
+        # Normalize coordinates to the range [-1, 1]
+        coords = 2 * frac - 1.0
+
+        # Reshape to (N, D, H, W, 3) for grid sampling
+        if len(coords.shape) == 1:
+            N = 1
+        elif len(coords.shape) == 2:
+            N = coords.shape[0]
+        else:
+            raise ValueError(f"Unsupported input shape: {coords.shape}. Expected (3,) or (N,3).")
+        
+        coords = coords.view(N,1,1,1,3)
+        
+        # Perform trilinear interpolation
+        interpolated = torch.nn.functional.grid_sample(self.grid.expand(N, -1, -1, -1, -1).detach(), # TODO: Check if this is correct
+                                                       coords,
+                                                       mode=self.mode, # Trilinear interpolation because of 5D input
+                                                       align_corners=True,
+                                                       padding_mode='border'
+                                                       )
+        
+        return interpolated.squeeze()
     
 class DensityMapBase(DensityMapPyTorch):
     def __init__(self):
