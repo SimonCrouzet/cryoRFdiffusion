@@ -10,14 +10,17 @@ from Bio import PDB
 from collections import defaultdict
 import ast
 
-def load_cdr_length_data(json_file_path: Optional[str], data_type: str = 'all') -> Optional[Dict]:
+def load_cdr_length_data(json_file_path: Optional[str], data_type: str = 'all', use_correct_cdr_length: bool = False) -> Optional[Dict]:
     if json_file_path:
         with open(json_file_path, 'r') as f:
             data = json.load(f)
-        if data_type not in ['all', 'train']:
-            logging.warning(f"Invalid data_type '{data_type}'. Using 'all' instead.")
-            data_type = 'all_data'
-        return data[data_type + '_data']
+        if use_correct_cdr_length:
+            return data
+        else:
+            if data_type not in ['all', 'train']:
+                logging.warning(f"Invalid data_type '{data_type}'. Using 'all' instead.")
+                data_type = 'all_data'
+            return data[data_type + '_data']
     return None
 
 def parse_pdb(pdb_file: str) -> Dict[str, List[int]]:
@@ -77,7 +80,7 @@ def find_segments(residue_list: List[int], design_ranges: List[List[int]]) -> Li
     return segments
 
 
-def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_length_data: Optional[Dict] = None, design_chain: Optional[Union[str, List[str]]] = None, fixed_chains: Optional[Union[str, List[str]]] = None, use_cdr_range: bool = True) -> List[str]:
+def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_length_data: Optional[Dict] = None, design_chain: Optional[Union[str, List[str]]] = None, fixed_chains: Optional[Union[str, List[str]]] = None, use_cdr_range: bool = False, use_correct_cdr_length: bool = True, case_name = None) -> List[str]:
     chain_infos = []
     chain_infos_dict = defaultdict(list)
     if isinstance(design_dict, PosixPath):
@@ -130,7 +133,9 @@ def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_l
                 cdr_key = f"CDR{chain_to_design}{count_design + 1}"
                 count_design += 1
 
-                if cdr_length_data and cdr_key in cdr_length_data and use_cdr_range:
+                if use_correct_cdr_length and use_cdr_range:
+                    raise ValueError("Cannot use both --use_correct_cdr_length and --use_cdr_range. Please choose one.")
+                elif cdr_length_data and cdr_key in cdr_length_data and use_cdr_range:
                     # Option 1: Use CDR length range from data
                     min_length = cdr_length_data[cdr_key]['min_length']
                     max_length = cdr_length_data[cdr_key]['max_length']
@@ -139,14 +144,18 @@ def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_l
                         logging.warning(f"Initial length {design_length} for {cdr_key} is outside the specified range [{min_length}, {max_length}]")
                     
                     logging.info(f"Using CDR length range for {cdr_key}: [{min_length}, {max_length}]")
-                elif cdr_length_data and use_cdr_range:
-                    raise ValueError(f"CDR Length metadata has been provided but does not contain {cdr_key} - check your file!")
+                elif cdr_length_data and case_name in cdr_length_data and use_correct_cdr_length:
+                    # Option 2: Use correct (GT) CDR length range from data
+                    min_length = cdr_length_data[case_name][cdr_key]
+                    max_length = cdr_length_data[case_name][cdr_key]
+                    logging.info(f"Using correct CDR length range for {cdr_key}: [{min_length}, {max_length}]")
+                elif (not use_cdr_range) and (not use_correct_cdr_length):
+                    # Option 3: Use current length (was +/- 1 before, but now deprecated)
+                    min_length = design_length
+                    max_length = design_length
+                    logging.info(f"Using current length for {cdr_key}: [{min_length}, {max_length}]")
                 else:
-                    # Option 2: Use current length +/- 1
-                    min_length = max(1, design_length - 1)  # Ensure min_length is at least 1
-                    max_length = design_length + 1
-                    logging.info(f"Using current length +/- 1 for {cdr_key}: [{min_length}, {max_length}]")
-
+                    raise ValueError(f"Please choose between \'use_cdr_range\' and \'use_correct_cdr_length\' and provide CDR Length metadata!")
                 chain_parts.append(f"{chain}{start}-{end}/{min_length}-{max_length}")
             else:
                 chain_parts.append(f"{chain}{start}-{end}")
@@ -202,9 +211,8 @@ def main():
     parser.add_argument('--design_chain', type=str, nargs='*', help='Chain(s) to design (e.g., H L). If not specified, all chains will be considered for design.')
     parser.add_argument('--fixed_chains', type=str, nargs='*', help='Chain(s) to fix (e.g., A B). If not specified, no chains will be fixed unless --design_chain is used.')
     parser.add_argument('--cryoem_map', type=str, help='Path to cryoEM map file (optional)')
-    parser.add_argument('--cryoem_weight', type=float, default=10.0, help='Weight for cryoEM map potential')
-    parser.add_argument('--cryoem_aggr', type=str, choices=['sum', 'max'], default='sum', help='Aggregation method for cryoEM map potential')
-    parser.add_argument('--use_cdr_range', action='store_true', help='Use CDR length range from data. If not set, use current length +/- 1.')
+    parser.add_argument('--use_cdr_range', action='store_true', help='Use CDR length range from data. If not set, use current length.')
+    parser.add_argument('--use_correct_cdr_length', action='store_true', help='Use correct (GT) CDR length range from data. If not set, use current length.')
     parser.add_argument('--revert_init_coords', action='store_true', help='Revert design to initial coordinates')
     parser.add_argument('--nb_diffusion_steps', type=int, default=50, help='Number of inference steps')
 
@@ -234,7 +242,7 @@ def main():
     cdr_length_data = None
     if args.cdr_length_json:
         logging.info(f"Loading CDR length data from {args.cdr_length_json}")
-        cdr_length_data = load_cdr_length_data(args.cdr_length_json, args.cdr_data_type)
+        cdr_length_data = load_cdr_length_data(args.cdr_length_json, args.cdr_data_type, args.use_correct_cdr_length)
 
     # Update output prefix if specific chains are being designed
     if args.design_chain:
@@ -249,7 +257,9 @@ def main():
         cdr_length_data, 
         design_chain=args.design_chain, 
         fixed_chains=args.fixed_chains, 
-        use_cdr_range=args.use_cdr_range
+        use_cdr_range=args.use_cdr_range,
+        use_correct_cdr_length=args.use_correct_cdr_length,
+        case_name=os.path.basename(args.input_pdb).split('_')[0] if args.use_correct_cdr_length else None
     )
 
     # Log chain info details
