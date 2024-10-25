@@ -190,8 +190,8 @@ def generate_command(args, chain_infos: List[str]) -> str:
     
     if args.cryoem_map:
         command += f'potentials.cryoem_map={args.cryoem_map} '
-        command += f'potentials.cryoem_weight={args.cryoem_weight} '
-        command += f'potentials.cryoem_aggr={args.cryoem_aggr} '
+        command += f'potentials.cryoem_config={args.cryoem_config} '
+        command += f'potentials.cryoem_contour={args.cryoem_contour} '
         command += f'potentials.guiding_potentials=[\"type:densities\"] '
     # else:
     #     command += f'potentials.guiding_potentials=[\"type:interface_ncontacts\"] '
@@ -215,6 +215,8 @@ def main():
     parser.add_argument('--design_chain', type=str, nargs='*', help='Chain(s) to design (e.g., H L). If not specified, all chains will be considered for design.')
     parser.add_argument('--fixed_chains', type=str, nargs='*', help='Chain(s) to fix (e.g., A B). If not specified, no chains will be fixed unless --design_chain is used.')
     parser.add_argument('--cryoem_map', type=str, help='Path to cryoEM map file (optional)')
+    parser.add_argument('--cryoem_config', type=str, help='Config file for the cryoEM densities-based guiding potential')
+    parser.add_argument('--cryoem_contour', type=float, default=0.0, help='Contour level for cryoEM map (default: 0.0)')
     parser.add_argument('--use_cdr_range', action='store_true', help='Use CDR length range from data. If not set, use current length.')
     parser.add_argument('--use_correct_cdr_length', action='store_true', help='Use correct (GT) CDR length range from data. If not set, use current length.')
     parser.add_argument('--revert_init_coords', action='store_true', help='Revert design to initial coordinates')
