@@ -180,10 +180,14 @@ def generate_command(args, chain_infos: List[str]) -> str:
         f'"contigmap.contigs={contigmap}" '
         f'inference.num_designs={args.num_designs} '
         f'denoiser.noise_scale_ca={args.noise_scale_ca} '
-        f'denoiser.noise_scale_frame={args.noise_scale_frame} '
-        # f'diffuser.partial_T={args.partial_T}'
-        f'diffuser.T={args.nb_diffusion_steps} '
+        f'denoiser.noise_scale_frame={args.noise_scale_frame} '        
     )
+    
+    if args.nb_partial_steps != -1:
+        command += f'diffuser.partial_T={args.nb_partial_steps} '
+    else:
+        command += f'diffuser.T={args.nb_diffusion_steps} '
+    
     if args.cryoem_map:
         command += f'potentials.cryoem_map={args.cryoem_map} '
         command += f'potentials.cryoem_weight={args.cryoem_weight} '
@@ -215,6 +219,7 @@ def main():
     parser.add_argument('--use_correct_cdr_length', action='store_true', help='Use correct (GT) CDR length range from data. If not set, use current length.')
     parser.add_argument('--revert_init_coords', action='store_true', help='Revert design to initial coordinates')
     parser.add_argument('--nb_diffusion_steps', type=int, default=50, help='Number of inference steps')
+    parser.add_argument('--nb_partial_steps', type=int, default=-1, help='Number of partial diffusion steps')
 
     args = parser.parse_args()
 
@@ -230,6 +235,11 @@ def main():
         raise FileNotFoundError(f"CDR length JSON file {args.cdr_length_json} not found.")
     if args.cryoem_map and not os.path.exists(args.cryoem_map):
         raise FileNotFoundError(f"CryoEM map file {args.cryoem_map} not found.")
+    
+    if (args.nb_diffusion_steps != 50 and args.nb_partial_steps != -1):
+        raise ValueError("Cannot specify both --nb_diffusion_steps and --nb_partial_steps. Please choose one.")
+    elif args.nb_partial_steps >= 50:
+        raise ValueError("Initial RFdiffusion model is trained for 50 inference steps. Please choose a number of partial steps less than 50.")
 
     # Parse PDB file
     logging.info(f"Parsing input PDB file: {args.input_pdb}")
