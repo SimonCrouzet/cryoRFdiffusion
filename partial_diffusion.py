@@ -11,9 +11,17 @@ from collections import defaultdict
 import ast
 
 def load_cdr_length_data(json_file_path: Optional[str], data_type: str = 'all', use_correct_cdr_length: bool = False) -> Optional[Dict]:
+def load_cdr_length_data(json_file_path: Optional[str], data_type: str = 'all', use_correct_cdr_length: bool = False) -> Optional[Dict]:
     if json_file_path:
         with open(json_file_path, 'r') as f:
             data = json.load(f)
+        if use_correct_cdr_length:
+            return data
+        else:
+            if data_type not in ['all', 'train']:
+                logging.warning(f"Invalid data_type '{data_type}'. Using 'all' instead.")
+                data_type = 'all_data'
+            return data[data_type + '_data']
         if use_correct_cdr_length:
             return data
         else:
@@ -81,6 +89,7 @@ def find_segments(residue_list: List[int], design_ranges: List[List[int]]) -> Li
 
 
 def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_length_data: Optional[Dict] = None, design_chain: Optional[Union[str, List[str]]] = None, fixed_chains: Optional[Union[str, List[str]]] = None, use_cdr_range: bool = False, use_correct_cdr_length: bool = True, case_name = None) -> List[str]:
+def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_length_data: Optional[Dict] = None, design_chain: Optional[Union[str, List[str]]] = None, fixed_chains: Optional[Union[str, List[str]]] = None, use_cdr_range: bool = False, use_correct_cdr_length: bool = True, case_name = None) -> List[str]:
     chain_infos = []
     chain_infos_dict = defaultdict(list)
     if isinstance(design_dict, PosixPath):
@@ -136,6 +145,9 @@ def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_l
                 if use_correct_cdr_length and use_cdr_range:
                     raise ValueError("Cannot use both --use_correct_cdr_length and --use_cdr_range. Please choose one.")
                 elif cdr_length_data and cdr_key in cdr_length_data and use_cdr_range:
+                if use_correct_cdr_length and use_cdr_range:
+                    raise ValueError("Cannot use both --use_correct_cdr_length and --use_cdr_range. Please choose one.")
+                elif cdr_length_data and cdr_key in cdr_length_data and use_cdr_range:
                     # Option 1: Use CDR length range from data
                     min_length = cdr_length_data[cdr_key]['min_length']
                     max_length = cdr_length_data[cdr_key]['max_length']
@@ -154,7 +166,18 @@ def generate_chain_info(chain_residues: Dict[str, List[int]], design_dict, cdr_l
                     min_length = design_length
                     max_length = design_length
                     logging.info(f"Using current length for {cdr_key}: [{min_length}, {max_length}]")
+                elif cdr_length_data and case_name in cdr_length_data and use_correct_cdr_length:
+                    # Option 2: Use correct (GT) CDR length range from data
+                    min_length = cdr_length_data[case_name][cdr_key]
+                    max_length = cdr_length_data[case_name][cdr_key]
+                    logging.info(f"Using correct CDR length range for {cdr_key}: [{min_length}, {max_length}]")
+                elif (not use_cdr_range) and (not use_correct_cdr_length):
+                    # Option 3: Use current length (was +/- 1 before, but now deprecated)
+                    min_length = design_length
+                    max_length = design_length
+                    logging.info(f"Using current length for {cdr_key}: [{min_length}, {max_length}]")
                 else:
+                    raise ValueError(f"Please choose between \'use_cdr_range\' and \'use_correct_cdr_length\' and provide CDR Length metadata!")
                     raise ValueError(f"Please choose between \'use_cdr_range\' and \'use_correct_cdr_length\' and provide CDR Length metadata!")
                 chain_parts.append(f"{chain}{start}-{end}/{min_length}-{max_length}")
             else:
